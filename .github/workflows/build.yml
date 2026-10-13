@@ -1,0 +1,58 @@
+name: build-windows
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          arch: win64_msvc2019_64
+          cache: true
+
+      - name: Clone maplibre-native-qt
+        shell: bash
+        run: git clone --recurse-submodules --shallow-submodules --depth 1 https://github.com/maplibre/maplibre-native-qt.git
+
+      - name: Build + install maplibre-native-qt
+        shell: bash
+        run: |
+          QT_DIR="$(cygpath -m "$QT_ROOT_DIR")"
+          cmake -S maplibre-native-qt -B mlq-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$QT_DIR" \
+            -DMLN_QT_WITH_WIDGETS=ON \
+            -DMLN_QT_WITH_INTERNAL_ICU=ON \
+            -DCMAKE_INSTALL_PREFIX="$PWD/mlq-install"
+          cmake --build mlq-build
+          cmake --install mlq-build
+
+      - name: Build app
+        shell: bash
+        run: |
+          QT_DIR="$(cygpath -m "$QT_ROOT_DIR")"
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/mlq-install;$QT_DIR"
+          cmake --build build
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir dist
+          cp build/basic_map.exe dist/
+          find mlq-install -name "*.dll" -exec cp {} dist/ \;
+          windeployqt --release --no-translations dist/basic_map.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: basic_map-windows
+          path: dist
